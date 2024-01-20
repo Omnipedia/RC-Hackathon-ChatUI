@@ -1,7 +1,7 @@
 use actix_cors::Cors;
 use actix_web::{
-    middleware, post, rt,
-    web::{self, Data, Json},
+    middleware, post,
+    web::{Data, Json},
     App, HttpResponse, HttpServer, Responder,
 };
 use bytes::Bytes;
@@ -12,14 +12,12 @@ use sources::get_sources_list;
 use std::{
     fmt::{Display, Formatter},
     pin::Pin,
+    string,
     sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
-use tokio::{
-    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
-    time::sleep,
-};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use utoipa::{OpenApi, ToSchema};
 use utoipa_redoc::{Redoc, Servable};
 mod message;
@@ -111,18 +109,24 @@ async fn streaming_conversation(
     query_engine: Data<Arc<Engine>>,
 ) -> impl Responder {
     let (client, sender) = Client::new();
-    actix_web::rt::spawn(async move {
-        let _ = query_engine
-            .streaming_conversation(conversation_1, sender)
-            .await
-            .map_err(|e| log::error!("{e}"));
-    });
 
-    HttpResponse::Ok()
-        .append_header(("content-type", "text/event-stream"))
-        .append_header(("connection", "keep-alive"))
-        .append_header(("cache-control", "no-cache"))
-        .streaming(client)
+    match query_engine.streaming_conversation_validator(&conversation_1) {
+        Err(e) => HttpResponse::BadRequest().body(format!("{}", e)).into(),
+        Ok(()) => {
+            actix_web::rt::spawn(async move {
+                let _ = query_engine
+                    .streaming_conversation(conversation_1, sender)
+                    .await
+                    .map_err(|e| log::error!("{e}"));
+            });
+
+            HttpResponse::Ok()
+                .append_header(("content-type", "text/event-stream"))
+                .append_header(("connection", "keep-alive"))
+                .append_header(("cache-control", "no-cache"))
+                .streaming(client)
+        }
+    }
 }
 
 #[actix_web::main]
@@ -225,10 +229,10 @@ impl Engine {
         Conversation(message_history): Conversation,
         tx: UnboundedSender<Bytes>,
     ) -> Result<(), QueryEngineError> {
-        let words = MESSAGE_CONTENT.split(" ").collect::<Vec<_>>();
-        let sources = get_sources_list();
-
         log::info!("Received {:#?}", message_history);
+
+        let words = MESSAGE_CONTENT.split(' ').collect::<Vec<_>>();
+        let sources = get_sources_list();
 
         actix_web::rt::spawn(async move {
             for source in sources {
@@ -243,5 +247,21 @@ impl Engine {
             let _ = tx.send(PartialMessage::done().message());
         });
         Ok(())
+    }
+    pub(crate) fn streaming_conversation_validator(
+        &self,
+        Conversation(message_history): &Conversation,
+    ) -> Result<(), QueryEngineError> {
+        match message_history.last() {
+            None => Err(QueryEngineError::MockError),
+            Some(Message::Assistant(_, _)) => Err(QueryEngineError::MockError),
+            Some(Message::User(string)) => {
+                if &string.to_lowercase() == &String::from("error") {
+                    return Err(QueryEngineError::MockError);
+                } else {
+                    Ok(())
+                }
+            }
+        }
     }
 }
