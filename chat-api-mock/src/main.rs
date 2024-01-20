@@ -105,17 +105,19 @@ pub(crate) struct Conversation(pub(crate) Vec<Message>);
 )]
 #[post("/streaming_conversation")]
 async fn streaming_conversation(
-    Json(conversation_1): Json<Conversation>,
+    Json(conversation): Json<Conversation>,
     query_engine: Data<Arc<Engine>>,
 ) -> impl Responder {
+    log::info!("Received \n{:#?}", conversation);
+
     let (client, sender) = Client::new();
 
-    match query_engine.streaming_conversation_validator(&conversation_1) {
+    match query_engine.streaming_conversation_validator(&conversation) {
         Err(e) => HttpResponse::BadRequest().body(format!("{}", e)).into(),
         Ok(()) => {
             actix_web::rt::spawn(async move {
                 let _ = query_engine
-                    .streaming_conversation(conversation_1, sender)
+                    .streaming_conversation(conversation, sender)
                     .await
                     .map_err(|e| log::error!("{e}"));
             });
@@ -207,6 +209,8 @@ impl Stream for Client {
 #[derive(Debug)]
 pub(crate) enum QueryEngineError {
     MockError,
+    NoMessage,
+    AgentMessage,
 }
 
 impl std::error::Error for QueryEngineError {}
@@ -215,7 +219,13 @@ impl Display for QueryEngineError {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             QueryEngineError::MockError => {
-                write!(f, "Mock Error: Something catastrophic happened.")
+                write!(f, "Error: Something catastrophic happened. You did this.")
+            }
+            QueryEngineError::NoMessage => {
+                write!(f, "Error: There is no Message to respond to.")
+            }
+            QueryEngineError::AgentMessage => {
+                write!(f, "Error: The last message must be from the user.")
             }
         }
     }
@@ -229,8 +239,6 @@ impl Engine {
         Conversation(message_history): Conversation,
         tx: UnboundedSender<Bytes>,
     ) -> Result<(), QueryEngineError> {
-        log::info!("Received {:#?}", message_history);
-
         let words = MESSAGE_CONTENT.split(' ').collect::<Vec<_>>();
         let sources = get_sources_list();
 
