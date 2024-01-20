@@ -5,6 +5,19 @@ This repo contains a Mock API Service under `chat-api-mock`. You will need rust 
 1. The last user message is simply 'error'
 2. There are no messages in the conversation.
 3. The last message belongs to the Assistant
+
+The API Accepts a POST request containing the conversation history, and return a SSE message stream of partial messages. The partial message can be:
+1. a `content` fragment, which should be appended to the message on screen and rendered. This is a possibly null `string`.
+2. A `source`, which should be appended to the list of sources. This is a possibly null `string`.
+3. the DONE signal, at which point the client must close the connection. This will be `null` or `"DONE"`.
+4. 1 _and_ 2.
+
+The message has the following format:
+```js
+event: message
+data: {"content":"Lorem","source":null,"finished":null}
+```
+
 ### Valid API Call
 ```bash
 curl --location 'http://0.0.0.0:5001/streaming_conversation' \
