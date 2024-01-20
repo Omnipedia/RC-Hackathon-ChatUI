@@ -1,7 +1,5 @@
 # Chat UI for Omnipedia
 
-Repo: https://github.com/Omnipedia/RC-Hackathon-ChatUI
-
 ## Mock API Service
 This repo contains a Mock API Service under `chat-api-mock`. You will need rust 1.75. While it is running at [http://0.0.0.0:5001](http://0.0.0.0:5001), you will find the api ReDoc documentation and example api calls at [http://0.0.0.0:5001/api-doc](http://0.0.0.0:5001/api-doc). An error will trigger under the following conditions:
 1. The last user message is simply 'error'
